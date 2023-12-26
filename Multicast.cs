@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Windows.Forms;
 
 namespace Standalone_Multicast
 {
@@ -19,8 +20,6 @@ namespace Standalone_Multicast
         public IHost _host;                             //Required for plugin
         public System.Windows.Forms.Form _parent;       //Required for plugin
 
-        bool _debug = false;
-
         private bool _enabled = true;
 
         private Guid _multicastGuid = Guid.NewGuid();
@@ -28,8 +27,9 @@ namespace Standalone_Multicast
         private UdpClient _udpClient;
         private IPAddress _multicastAddress;
         private IPEndPoint _multicastEndpoint;
-        #region IPlugin Properties
 
+        #region IPlugin Properties
+        
         //Required for Plugin - Called when Genie needs the name of the plugin (On menu)
         //Return Value:
         //              string: Text that is the name of the Plugin
@@ -101,8 +101,12 @@ namespace Standalone_Multicast
             _host = Host;
 
             // Set Genie Variables if not already set
-            //if (_host.get_Variable("Multicast.Debug") == "")
-            //    _host.SendText("#var Multicast.Debug 0");
+            if (_host.get_Variable("Multicast.Debug") == "")
+                _host.SendText("#var Multicast.Debug 0");
+            if (_host.get_Variable("Multicast.Address") == "")
+                _host.SendText("#var Multicast.Address 224.0.0.1");
+            if (_host.get_Variable("Multicast.Port") == "")
+                _host.SendText("#var Multicast.Port 12345");
 
             // Initialize multicast
             InitializeMulticast();
@@ -120,24 +124,13 @@ namespace Standalone_Multicast
                 // Cleam up leading/trailing spaces and remove command name
                 Text = Text.Trim().Replace("/multicast ", "");
 
-                /*
-                // Check for proper syntax
-                Regex msg = new Regex(" ");
-                int space = msg.Matches(Text).Count;
-                if (space > 2)
-                {
-                    DisplaySyntax();
-                    return "";
-                }
-                */
-
                 // Add this client's GUID to beginning of message
                 Text = _multicastGuid.ToString() + ":" + Text;
 
                 // Send multicast message
                 byte[] _textBytes = Encoding.UTF8.GetBytes(Text);
                 _udpClient.Send(_textBytes, Text.Length, _multicastEndpoint);
-                DebugOutput("Multicast: Sent: " + Text);
+                DebugOutput("Sent: " + Text);
                 return "";
             }
             else if (Text == "/multicast")
@@ -160,19 +153,7 @@ namespace Standalone_Multicast
             {
                 if (_host != null)
                 {
-                    /*
-                    if (_calculating == true && Text.StartsWith("Name: ") && Text.Contains("Guild: "))
-                    {
-                        _calcGuildName = Text.Substring(Text.IndexOf("Guild: ") + 7).Trim();
-                        if (!GetGuild(_calcGuildName))
-                        {
-                            DisplaySyntax();
-                            _calculating = false;
-                            return Text;
-                        }
-                        _host.SendText("exp 0");
-                    }
-                    */
+                    // Nothing to do!
                 }
             }
             catch
@@ -196,21 +177,29 @@ namespace Standalone_Multicast
 
         public void VariableChanged(string Variable)
         {
-
         }
 
         public void ParentClosing()
         {
+            if (_udpClient is object)
+            {
+                DebugOutput("Leaving multicast group!");
+                _udpClient.DropMulticastGroup(_multicastAddress);
+                _udpClient.Client.Shutdown(SocketShutdown.Both);
+            }
         }
 
         public void OpenSettingsWindow(System.Windows.Forms.Form parent)
         {
             frmMulticast form = new frmMulticast(ref _host);
 
-            //if (_host.get_Variable("Multicast.Debug") == "1")
-            //    form.debug.Text = "Bottom";
-            //else
-            //    form.debug.Text = "Top";
+            if (_host.get_Variable("Multicast.Debug") == "1")
+                form.chkDebug.Checked = true;
+            else
+                form.chkDebug.Checked = false;
+
+            form.txtAddress.Text = _host.get_Variable("Multicast.Address");
+            form.txtPort.Text = _host.get_Variable("Multicast.Port");
 
             if (parent != null)
                form.MdiParent = parent;
@@ -233,50 +222,64 @@ namespace Standalone_Multicast
             if (_receivedBytes.Length > 0)
             {
                 String _receivedText = System.Text.Encoding.UTF8.GetString(_receivedBytes, 0, _receivedBytes.Length);
-                DebugOutput("Multicast: Received: " + _receivedText);
+                DebugOutput("Received: " + _receivedText);
+
+                // Ignore messages received with this client's own GUID
                 if (!_receivedText.StartsWith(_multicastGuid.ToString()))
                 {
                     // Strip the sender's GUID from the beginning of the message
                     _receivedText = Regex.Replace(_receivedText, @"^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}:", "");
-                    SendParse(_receivedText); 
+                    SendParse(_receivedText);
+                }
+                else
+                {
+                    DebugOutput("Ignoring our own message: " + _receivedText);
                 }
             }
-           
+
             // Restart listening for udp data packages
             _udpClient.BeginReceive(new AsyncCallback(ReceivedCallback), null);
         }
 
         private void InitializeMulticast()
         {
-            /*
-             NetworkInterface[] nics = NetworkInterface.GetAllNetworkInterfaces();
-             foreach (NetworkInterface adapter in nics)
-             {
-                 IPInterfaceProperties ip_properties = adapter.GetIPProperties();
-                 if (!adapter.GetIPProperties().MulticastAddresses.Any())
-                     continue; // most of VPN adapters will be skipped
-                 if (!adapter.SupportsMulticast)
-                     continue; // multicast is meaningless for this type of connection
-                 if (OperationalStatus.Up != adapter.OperationalStatus)
-                     continue; // this adapter is off or not connected
-                 IPv4InterfaceProperties p = adapter.GetIPProperties().GetIPv4Properties();
-                 if (null == p)
-                     continue; // IPv4 is not configured on this adapter
-                 _udpClient.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, (int)IPAddress.HostToNetworkOrder(p.Index));
-             }
-             */
-            _udpClient = new UdpClient();
-            _multicastAddress = IPAddress.Parse("224.0.0.1");
-            _multicastEndpoint = new IPEndPoint(IPAddress.Parse("224.0.0.1"), 12345);
+            // Validate multicast IP address
+            string _varMulticastAddress = _host.get_Variable("Multicast.Address");
+            try
+            {
+                _multicastAddress = IPAddress.Parse(_varMulticastAddress);
+            }
+            catch (FormatException)
+            {
+                _host.SendText("#echo red \"Multicast: Invalid multicast address: " + _varMulticastAddress + "\"");
+                return;
+            }
 
+            // Validate multicast port
+            short _multicastPort;
+            string _varMulticastPort = _host.get_Variable("Multicast.Port");
+            try
+            {
+                _multicastPort = short.Parse(_host.get_Variable("Multicast.Port"));
+            }
+            catch (OverflowException)
+            {
+                _host.SendText("#echo red \"Multicast: Invalid multicast port: " + _varMulticastPort + "\"");
+                return;
+            }
+
+            _multicastEndpoint = new IPEndPoint(_multicastAddress, _multicastPort);
+
+             // Setup UDP client
+            _udpClient = new UdpClient();
             _udpClient.ExclusiveAddressUse = false;
             _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, 12345));
+            _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, _multicastPort));
             _udpClient.JoinMulticastGroup(_multicastAddress);
             _udpClient.MulticastLoopback = true;
-            DebugOutput("Multicast: Joined multicast group!");
+            DebugOutput("Joined multicast group!");
             _udpClient.BeginReceive(new AsyncCallback(ReceivedCallback), null);
-            DebugOutput("Multicast: Begin receiving!");
+            DebugOutput("Begin receiving!");
         }
 
         private void DisplaySyntax()
@@ -288,8 +291,8 @@ namespace Standalone_Multicast
 
         private void DebugOutput(string output)
         {
-            if (!_debug) return;
-            _host.SendText("#echo red \"DEBUG: " + output + "\"");
+            if (_host.get_Variable("Multicast.Debug") == "1")
+                _host.SendText("#echo red \"Multicast debug: " + output + "\"");
         }
 
         private void SendOutput(string output)
@@ -299,8 +302,9 @@ namespace Standalone_Multicast
 
         private void SendParse(string output)
         {
-            if (_debug) _host.SendText("#echo red \"DEBUG: #parse multicast " + output + "\"");
-            _host.SendText("#parse multicast " + output);
+            if (_host.get_Variable("Multicast.Debug") == "1")
+                _host.SendText("#echo red \"Multicast debug: Passing message to Genie: #parse /multicast " + output + "\"");
+            _host.SendText("#parse #multicast " + output);
         }
 
         #endregion
