@@ -26,7 +26,7 @@ Which should fire the trigger to teach on Client 1:<br/>
 1. Why am I prompted by Windows Firewall to allow Genie access to the network?<br/>
   The Multicast plugin binds to a TCP/IP socket to listen for incoming messages on the configured multicast address and port.  This will trigger the Windows Firewall prompt to allow access to the network.
 
-1. 1. Why use client GUIDs instead of setting MulticastLoopback to false?<br/>
+1. Why use client GUIDs instead of setting MulticastLoopback to false?<br/>
   If the MulticastLoopback socket option is set, Genie clients running on the same computer will not see each other's multicast messages.  Instead, a GUID is assigned to each Genie client.  This GUID is used to ignore the messages received by the same client that send them.
 
 1. Not able to send/receive messages after changing settings?<br/>
